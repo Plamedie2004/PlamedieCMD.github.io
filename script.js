@@ -1,13 +1,12 @@
 (async () => {
     if (typeof tmImage === "undefined") {
-        console.error("tmImage is not loaded! Check your script tags.");
+        console.error("tmImage is not loaded! Check your script tag in HTML.");
         return;
     }
 
     const URL = "my_model/";
 
-    // Hier kun je jouw classes aan geluiden en afbeeldingen koppelen
-
+    // Geluid en afbeelding per class
     const sounds = {
         "Duimpje": new Audio("my_sounds/magic-fairy.mp3"),
         "Peace": new Audio("my_sounds/magic-mirror.mp3"),
@@ -21,47 +20,61 @@
         "Neutral": "my_images/begin.png"
     };
 
-    // ---
+    let model = null;
+    let webcam = null;
 
-    
+    const confidenceThreshold = 0.9;
+    const maxThreshold = 1.0;
+    const holdTime = 2000;
+    const cooldown = 4000;
+    const bufferSize = 5;
+    const displayHoldDuration = 5000;
+    const neutralHoldDuration = 500;
 
-    let model = null, webcam = null;
-    const confidenceThreshold = 0.9; 
-    const maxThreshold = 1.0;        
-    const holdTime = 2000;            
-    const cooldown = 4000;            
-    const bufferSize = 5;             
-    const displayHoldDuration = 5000; 
-    const neutralHoldDuration = 500;  
-
-    const holdStart = {};             
+    const holdStart = {};
     const lastPlayed = {};
-    const predictionBuffer = {};      
+    const predictionBuffer = {};
     let currentDetectedClass = null;
     let lastDetectionTime = 0;
     let lastNeutralTime = 0;
 
     const imageDiv = document.getElementById("image-display");
-    imageDiv.innerHTML = `<img src="${images["Neutral"]}" alt="Neutral">`;
+    const predictionText = document.getElementById("prediction");
+    const startBtn = document.getElementById("start-btn");
 
-    try {
-        webcam = new tmImage.Webcam(400, 300, true, { facingMode: "user" });
-        await webcam.setup();
-        await webcam.play();
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        console.log("Webcam ready!");
-    } catch (err) {
-        console.error("Webcam initialization failed:", err);
-        return;
-    }
+    // ✅ Ontgrendel audio op mobiel (één klik is genoeg)
+    document.body.addEventListener("click", () => {
+        Object.values(sounds).forEach(sound => {
+            sound.play().then(() => sound.pause());
+        });
+    }, { once: true });
 
+    // ✅ Model laden
     try {
         model = await tmImage.load(URL + "model.json", URL + "metadata.json");
         console.log("Model loaded!");
     } catch (err) {
         console.error("Model loading failed:", err);
-        model = null;
+        predictionText.innerText = "Kon het model niet laden 😕";
+        return;
     }
+
+    // ✅ Start camera pas na klik
+    startBtn.addEventListener("click", async () => {
+        startBtn.style.display = "none";
+        try {
+            webcam = new tmImage.Webcam(400, 300, true, { facingMode: "user" });
+            await webcam.setup();
+            await webcam.play();
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            console.log("Webcam ready!");
+            loop();
+        } catch (err) {
+            console.error("Webcam initialization failed:", err);
+            alert("Camera kon niet worden gestart. Controleer je browserinstellingen.");
+            startBtn.style.display = "block";
+        }
+    });
 
     async function loop() {
         webcam.update();
@@ -85,13 +98,13 @@
             const now = Date.now();
 
             if (currentDetectedClass && now - lastDetectionTime < displayHoldDuration) {
-                document.getElementById("prediction").innerText = `Detected: ${currentDetectedClass}`;
+                predictionText.innerText = `Gedetecteerd: ${currentDetectedClass}`;
                 return;
             }
 
             if (avgProb < confidenceThreshold) {
                 if (!currentDetectedClass || now - lastNeutralTime > neutralHoldDuration) {
-                    document.getElementById("prediction").innerText = "No detection";
+                    predictionText.innerText = "Geen hand herkend...";
                     imageDiv.innerHTML = `<img src="${images["Neutral"]}" alt="Neutral">`;
                     currentDetectedClass = null;
                     lastNeutralTime = now;
@@ -99,8 +112,7 @@
                 return;
             }
 
-            document.getElementById("prediction").innerText =
-                `Detected: ${className} (${(avgProb*100).toFixed(2)}%)`;
+            predictionText.innerText = `Gedetecteerd: ${className} (${(avgProb * 100).toFixed(2)}%)`;
 
             if (sounds[className] && avgProb >= confidenceThreshold && avgProb <= maxThreshold) {
                 if (!holdStart[className]) holdStart[className] = now;
@@ -124,6 +136,4 @@
             console.error("Prediction failed:", err);
         }
     }
-
-    loop();
 })();
